@@ -1,0 +1,10 @@
+---
+title: About
+---
+
+Hi, welcome to my blog. I'm a programmer with the  passion to modern web development, OSS, science and Emacs.
+If you want to have a small talk with me, please do reach me out using following channels:
+
+- [[mailto:futu.fata@gmail.com][Email me]] with any questions on any topic.
+- [[https://github.com/akhramov/][GitHub]] is where my code lives.
+- [[https://www.linkedin.com/in/artyom-khramov-13653bb7/][LinkedIn]]

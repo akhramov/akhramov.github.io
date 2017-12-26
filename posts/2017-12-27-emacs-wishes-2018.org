@@ -1,0 +1,57 @@
+------
+title: Emacs wishes for 2018
+teaser: "I like making New Year wishes. In 2018 I would like to do so
+many things, like finally learning Agda, finishing TAPL, reading a
+dozen of books on Medieval history.
+But most importantly I would like to improve my workflow by turning
+Emacs into platform-agnostic ultimate OS. Here's what I'd do."
+------
+
+I like making New Year wishes. In 2018 I would like to do so
+many things, like finally learning Agda, finishing TAPL, reading a
+dozen of books on Medieval history.
+But most importantly I would like to improve my workflow by turning
+Emacs into platform-agnostic ultimate OS. Here's what I'd do.
+
+*** Getting rid of tmux
+
+Don't get me wrong. tmux is an exceptional tool. I used it for a
+while for the dual purpose: workspaces and session persisting. Tmux
+is not designed for neither, but hackery led me there.
+
+From what I'm aware Emacs has built-in functionality for session
+persistance ([[https://www.gnu.org/software/emacs/manual/html_node/emacs/Saving-Emacs-Sessions.html][desktop-save-mode]]), which works especially well with
+[[https://github.com/ffevotte/desktop-plus][desktop+]].
+
+Also, there are good packages for providing workspace-like experience:
+[[https://github.com/wasamasa/eyebrowse][eyebrowse]], [[https://github.com/Bad-ptr/persp-mode.el][persp-mode]], [[https://github.com/nex3/perspective-el][perspective]] to name some.
+
+
+*** Mail and Calendar
+
+I'm using Apple's Mail and Calendar applications and it's making me very
+Apple-dependent. I can't imagine my life without these tools, yet
+there's still hope for me.
+
+Why does it matter? It matters, because I want to be productive on all
+platforms and homogeneous experience, I believe, is the key. It won't
+matter if I run MacOS, or Linux, or heaven forbid, Windows. It's
+always Emacs.
+
+For email client, there are many options. Previously I played around
+with [[https://github.com/djcb/mu][mu / mu4e]] backed by either [[http://isync.sourceforge.net/mbsync.html][mbsync]] or [[https://github.com/OfflineIMAP/offlineimap][OfflineIMAP]] with [[https://github.com/lefcha/imapfilter][IMAPFilter]]
+(for [[https://tools.ietf.org/html/rfc2177][IMAP IDLE]] live updates).
+
+As for Calendar, I'll have to dive deeper into Orgmode. Calendar
+should work just fine, according to [[http://cestlaz.github.io/posts/using-emacs-26-gcal/#.WkLGDshxW3U][this blog post]].
+
+*** org-babel config
+
+I embrace literate programming, so rewriting Emacs config
+in LP style is an attractive idea.
+
+*** Contributing back
+
+Last year I extensively contributed to various Ruby OSS projects. And
+there was just one contribution to [[https://github.com/jacktasia/dumb-jump][dumb-jump]], a widely used Emacs
+library. Will try my best to contribute back!
