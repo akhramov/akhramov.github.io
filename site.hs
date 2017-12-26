@@ -1,10 +1,16 @@
 --------------------------------------------------------------------------------
 {-# LANGUAGE OverloadedStrings #-}
-import           Data.Monoid ((<>))
+import           Data.Monoid     ((<>))
 import           Hakyll
-import           Control.Monad (liftM)
-
+import           Control.Monad   (liftM)
+import           System.FilePath (replaceExtension)
+import           Data.Char       (toLower)
 --------------------------------------------------------------------------------
+
+setExtensionAndLower :: String -> Routes
+setExtensionAndLower extension = customRoute $
+ (map toLower) . (`replaceExtension` extension) . toFilePath
+
 main :: IO ()
 main = hakyll $ do
     match "images/*" $ do
@@ -12,7 +18,7 @@ main = hakyll $ do
         compile copyFileCompiler
 
     match "css/*.hs" $ do
-      route   $ setExtension "css"
+      route   $ setExtensionAndLower "css"
       compile $ getResourceString >>= withItemBody (unixFilter "runghc" [])
 
     match "css/*" $ do
