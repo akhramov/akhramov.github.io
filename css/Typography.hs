@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
+module Typography (textStyle) where
 
-import Clay
+import           Clay
 
 noMargin :: Css
 noMargin = sym margin (px 0)
@@ -10,7 +11,7 @@ textFont = do
   fontFamily ["Europa", "Helvetica"] [sansSerif]
   textRendering  optimizeLegibility
 
-main :: IO ()
-main = putCss $ do
+textStyle :: Css
+textStyle = do
   mapM_ (? noMargin) [h2, h3, h4, h5, h6]
   body ? textFont

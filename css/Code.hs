@@ -1,8 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE NegativeLiterals #-}
 
-import Clay
-import Prelude hiding (span, div)
+module Code (codeStyle) where
+
+import           Clay
+import           Prelude hiding (div, span)
 
 lineNumbersStyle :: Css
 lineNumbersStyle = do
@@ -54,8 +55,8 @@ sourceCodeStyle = do
     color red
     fontWeight bold
 
-main :: IO ()
-main = putCss $ do
+codeStyle :: Css
+codeStyle =  do
   td # ".lineNumbers" ? lineNumbersStyle
   td # ".sourceCode"  ? sourceCodeContainerStyle
   div # ".sourceCode" ? sourceCodeStyle
