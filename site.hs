@@ -17,13 +17,9 @@ main = hakyll $ do
         route   idRoute
         compile copyFileCompiler
 
-    match "css/*.hs" $ do
+    match "css/Default.hs" $ do
       route   $ setExtensionAndLower "css"
-      compile $ getResourceString >>= withItemBody (unixFilter "runghc" [])
-
-    match "css/*" $ do
-        route   idRoute
-        compile compressCssCompiler
+      compile $ getResourceString >>= withItemBody (unixFilter "runghc" ["-icss"])
 
     match "about.org" $ do
         route   $ setExtension "html"

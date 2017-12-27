@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE NegativeLiterals #-}
+
+module Code (codeStyle) where
 
 import Clay
 import Prelude hiding (span, div)
@@ -54,8 +55,8 @@ sourceCodeStyle = do
     color red
     fontWeight bold
 
-main :: IO ()
-main = putCss $ do
+codeStyle :: Css
+codeStyle =  do
   td # ".lineNumbers" ? lineNumbersStyle
   td # ".sourceCode"  ? sourceCodeContainerStyle
   div # ".sourceCode" ? sourceCodeStyle
