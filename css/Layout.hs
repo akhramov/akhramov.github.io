@@ -72,16 +72,11 @@ headerStyle = do
 linkStyle :: Css
 linkStyle = textDecoration none
 
-homePageTitleStyle :: Css
-homePageTitleStyle =
-  query Clay.all [Media.minWidth 960] $ paddingLeft (px 10)
-
 layoutStyle :: Css
 layoutStyle = do
   html                   ? fullHeight
   body                   ? bodyStyle
   "#container"           ? containerStyle
-  ".home" # ".pageTitle" ? homePageTitleStyle
   footer                 ? footerStyle
   header                <? headerStyle
   a                      ? linkStyle

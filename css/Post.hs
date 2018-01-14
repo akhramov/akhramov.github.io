@@ -10,6 +10,6 @@ postListStyle = do
   ".postList" ? do
     query Clay.all [Media.minWidth 960] $ do
       maxWidth     (45 :: Size Percentage)
-      sym2 padding (px 5) (px 10)
+      padding (px 5) (px 10) (px 5) 0
       display      inlineBlock
       verticalAlign vAlignTop
