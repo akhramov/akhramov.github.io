@@ -5,8 +5,8 @@ cabal-version:      >= 1.10
 
 executable site
   main-is:          site.hs
-  build-depends:    base == 4.*
-                  , hakyll == 4.10.*
+  build-depends:    base
+                  , hakyll == 4.13.4.1
                   , clay
                   , filepath
   ghc-options:      -threaded

@@ -3,6 +3,7 @@
 
 module Layout (layoutStyle) where
 
+import           Data.List.NonEmpty (fromList)
 import           Clay
 import qualified Clay.Media as Media
 
@@ -41,7 +42,7 @@ containerStyle = do
         height      (px 50)
         left      $ px -10
         position    fixed
-        boxShadow   0 (px 1) (px 4) (rgba 0 0 0 0.5)
+        boxShadow $ fromList [black `bsColor` shadow (px 1) (px 4)]
 
       "grid-column-end" -: "span 2"
 
