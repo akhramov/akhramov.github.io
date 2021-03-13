@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Blog - Jailing Rust tests with procedural macros</title>
+    <link rel="stylesheet" href="../css/default.css" />
+  </head>
+  <body>
+    <div id="container">
+      <header>
+        <nav>
+          <a href="../">Home</a>
+          <a href="../about.html">About</a>
+          <a href="../archive.html">Archive</a>
+        </nav>
+      </header>
+
+      <main role="main">
+        <h1 class="Jailing Rust tests with procedural macros pageTitle">Jailing Rust tests with procedural macros</h1>
+        <article>
+    <section class="header">
+        Posted on March  8, 2021
+        
+        <div class="info">
+          
+          Tags: <a title="All pages tagged 'FreeBSD'." href="../tags/FreeBSD.html">FreeBSD</a>, <a title="All pages tagged 'VNET'." href="../tags/VNET.html">VNET</a>, <a title="All pages tagged 'Rust'." href="../tags/Rust.html">Rust</a>, <a title="All pages tagged 'containers'." href="../tags/containers.html">containers</a>, <a title="All pages tagged 'jail'." href="../tags/jail.html">jail</a>
+          
+        </div>
+    </section>
+    <section>
+        <p>Tests that affect networking subsystem are destined to be error-prone. Network stack acts as a shared environment, so tests can’t really run in parallel. God forbid if you tickle the firewall rules and the test fails to restore the original state. You end up frustrated and cut-out of the internet. Does this all sound familiar? Luckily, FreeBSD provides a handy workaround to all these issues – VNET jails and Rust’s <code>proc_macro_attribute</code> takes the ergonomic on the whole new level.</p>
+<h1 id="the-problem">The problem</h1>
+<p>Consider the following example. You develop a <a href="https://github.com/containernetworking/cni/blob/d1e1ae3c3420242a378a918d6badf27a0c08492d/SPEC.md">Container Network Interface</a> plugin. Likely you will need to</p>
+<ul>
+<li><p>Create interfaces, such as virtual ethernet interfaces (<a href="https://www.freebsd.org/cgi/man.cgi?query=epair&amp;apropos=0&amp;sektion=0&amp;manpath=FreeBSD+13.0-current&amp;arch=default&amp;format=html">epair(4)</a>), one side of which will be attached to the bridge, the other side will be inside the container.</p></li>
+<li><p>Manage routes within the container (<a href="https://www.freebsd.org/cgi/man.cgi?query=route%284%29&amp;apropos=0&amp;sektion=0&amp;manpath=FreeBSD+13.0-current&amp;arch=default&amp;format=html">route(4)</a>)</p></li>
+<li><p>Create network access tables, configure firewalls and such. PF, one of FreeBSD built-in routers does the excellent job here.</p></li>
+</ul>
+<p>Any attempt to test this functionality in Rust would result in unexpected obstacles, because tests run in parallel by default and will race for global resources, e.g. create or delete the default route at the same time.</p>
+<p>In these tests, the operating system itself becomes the proverbial global state and it is almost impossible to create a reliable test fixture.</p>
+<h1 id="the-solution">The solution</h1>
+<p>FreeBSD pioneered system-level virtualization and had the ability to run multiple network stacks at the same time since version 4.8-ish (that was in 2003). <a href="https://static.usenix.org/event/usenix03/tech/freenix03/full_papers/zec/zec_html/index.html">Implementing a Clonable Network Stack in the FreeBSD Kernel</a>.</p>
+<p>As of version 12.0, the VIMAGE kernel option has been stabilized and enabled by default. That means we can create so-called VNET jails, jails having their own virtualized network stack.</p>
+<p>Starting a new VNET jail is as easy as calling chroot, it’s just a matter of making a single syscall (<a href="https://www.freebsd.org/cgi/man.cgi?query=jail%282%29&amp;apropos=0&amp;sektion=2&amp;manpath=FreeBSD+13.0-current&amp;arch=default&amp;format=html">jail(2)</a>). Of course, rusty bindings are available <a href="https://github.com/fubarnetes/libjail-rs">jail-rs</a>.</p>
+<p>Technically, we could create a new jail for each network stack-related test and then tear down the jail without having to worry about cleaning up resources properly. Creating and destroying jails, however, can become cumbersome and impractical in terms of code repetition.</p>
+<p>The ideal UX would be to mark a test to be run in a jail, like this:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode rust"><code class="sourceCode rust"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true"></a><span class="at">#[</span>jailed_test<span class="at">]</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true"></a><span class="kw">fn</span> test_delete_default() <span class="op">{</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true"></a>    <span class="pp">Interface::</span>new(<span class="st">&quot;lo0&quot;</span>)</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true"></a>        <span class="op">.</span>expect(<span class="st">&quot;failed to get iface socket&quot;</span>)</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true"></a>        <span class="op">.</span>address(<span class="st">&quot;127.0.0.1&quot;</span><span class="op">,</span> <span class="st">&quot;127.255.255.255&quot;</span><span class="op">,</span> <span class="st">&quot;255.0.0.0&quot;</span>)</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true"></a>        <span class="op">.</span>expect(<span class="st">&quot;failed to assign expected address&quot;</span>)<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true"></a></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true"></a>    <span class="pp">route::</span>add_default(<span class="st">&quot;127.0.0.1&quot;</span>)<span class="op">.</span>expect(<span class="st">&quot;failed to add default route&quot;</span>)<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true"></a>    <span class="pp">route::</span>delete_default(<span class="st">&quot;127.0.0.1&quot;</span>)<span class="op">.</span>expect(<span class="st">&quot;failed to delete default route&quot;</span>)<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true"></a>    <span class="co">// etc</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true"></a><span class="op">}</span></span></code></pre></div>
+<p>Tokio and actix among others use <code>proc_macro_attribute</code> to achieve this (<a href="https://docs.rs/actix-macros/0.2.0/src/actix_macros/lib.rs.html#67-108">example</a>).</p>
+<h2 id="the-plan">The plan</h2>
+<p><img src="../images/2021-03-08-jailed-tests/2.jpg" data-max-width="60%" style="width:60.0%" /></p>
+<p>Roughly speaking, the macro should follow these steps:</p>
+<ol>
+<li><p>Create a jail without a running process, by setting <code>persist</code> parameter to true. libjail-rs does this <a href="https://fubarnetes.github.io/libjail-rs/x86_64-unknown-freebsd/jail/struct.RunningJail.html#method.defer_cleanup">by default</a>.</p></li>
+<li><p><a href="https://www.freebsd.org/cgi/man.cgi?query=fork&amp;apropos=0&amp;sektion=2&amp;manpath=FreeBSD+13.0-current&amp;arch=default&amp;format=html">fork(2)</a> the child process and attach it to the jail via <code>jail_attach</code> syscall. <a href="https://fubarnetes.github.io/libjail-rs/x86_64-unknown-freebsd/jail/struct.RunningJail.html#method.attach">libjail-rs binding</a>.</p></li>
+<li><p>Child executes the test body.</p></li>
+<li><p>Child communicates test results to parent via some form of IPC.</p></li>
+<li><p>Parent waits for the child process and propagates the results to the caller.</p></li>
+</ol>
+<p>Let’s walk through each step.</p>
+<h2 id="step-0.-macro-scaffold">Step 0. Macro scaffold</h2>
+<p>Rust procedural macros get a stream of Rust tokens on input and produce Rust tokens on output.<a href="#fn1" class="footnote-ref" id="fnref1" role="doc-noteref"><sup>1</sup></a></p>
+<p><img src="../images/2021-03-08-jailed-tests/1.jpg" data-max-width="60%" style="width:60.0%" /></p>
+<p>The current golden standard for writing Rust procedural macros includes two libraries:</p>
+<ul>
+<li><a href="https://github.com/dtolnay/syn">syn</a>, a parser for Rust token streams.</li>
+<li><a href="https://github.com/dtolnay/quote">quote</a> provides a handy way to produce Rust token streams by writting Rust code.</li>
+</ul>
+<p>Using these libraries, we can write a simple procedural macro attribute that’d be a drop-in replacement for the standard <code>#[test]</code> attribute.</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode rust"><code class="sourceCode rust"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true"></a><span class="kw">use</span> <span class="pp">proc_macro::</span>TokenStream<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true"></a><span class="kw">use</span> <span class="pp">syn::</span>ItemFn<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true"></a><span class="at">#[</span>proc_macro_attribute<span class="at">]</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true"></a><span class="kw">pub</span> <span class="kw">fn</span> jailed_test(_attrs<span class="op">:</span> TokenStream<span class="op">,</span> item<span class="op">:</span> TokenStream) <span class="op">-&gt;</span> TokenStream <span class="op">{</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true"></a>    <span class="kw">let</span> input <span class="op">=</span> <span class="pp">syn::parse_macro_input!</span>(item <span class="kw">as</span> ItemFn)<span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true"></a>    <span class="kw">let</span> fn_name <span class="op">=</span> input<span class="op">.</span>sig<span class="op">.</span>ident<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true"></a>    <span class="kw">let</span> body <span class="op">=</span> input<span class="op">.</span>block<span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true"></a></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true"></a>    <span class="pp">quote::quote!</span>(</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true"></a>        <span class="at">#[</span>test<span class="at">]</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true"></a>        <span class="kw">fn</span> #fn_name() <span class="op">{</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true"></a>            #body</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true"></a>        <span class="op">}</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true"></a>    )</span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true"></a>    <span class="op">.</span>into()</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true"></a><span class="op">}</span></span></code></pre></div>
+<p>As you can see, we utilize <a href="https://docs.rs/syn/1.0.62/syn/macro.parse_macro_input.html">syn::parse_macro_input!</a> to parse the input to get the test name and method’s body.</p>
+<p>When we use <a href="https://docs.rs/quote/1.0.9/quote/macro.quote.html">quote::quote</a> to produce tokens from what seems the regular Rust code with some interpolation.</p>
+<p>We are going to use the very limited subset of features provided by syn &amp; quote. Whose who interested in complicated and wonderful things should visit <a href="https://github.com/dtolnay/proc-macro-workshop">https://github.com/dtolnay/proc-macro-workshop</a>.</p>
+<h2 id="step-1.-jail-creation">Step 1. Jail creation</h2>
+<p>First things first, we are going to use third-party libraries to create jails, organize IPC and so on.</p>
+<p>Rust procedural macros should live in a separate crate and can’t have public reexports.</p>
+<p>Say, we have a proc macro like this:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode rust"><code class="sourceCode rust"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true"></a><span class="at">#[</span>proc_macro_attribute<span class="at">]</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true"></a><span class="kw">pub</span> <span class="kw">fn</span> jailed_test(_attrs<span class="op">:</span> TokenStream<span class="op">,</span> item<span class="op">:</span> TokenStream) <span class="op">-&gt;</span> TokenStream <span class="op">{</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true"></a>    <span class="pp">quote::quote!</span>(</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true"></a>        <span class="at">#[</span>test<span class="at">]</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true"></a>        <span class="kw">fn</span> jailed_test() <span class="op">{</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true"></a>            <span class="kw">use</span> <span class="pp">jail::</span>StoppedJail<span class="op">;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true"></a>            <span class="co">/// ...</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true"></a>        <span class="op">}</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true"></a>    )</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true"></a>    <span class="op">.</span>into()</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true"></a><span class="op">}</span></span></code></pre></div>
+<p>This makes an assumption that the crate using macro explicitly depends on <code>jail-rs</code>!</p>
+<p>To mitigate this, let’s assume there’s a crate (say, <code>test_helpers</code>) reexporting all dependencies of the procedural macro.</p>
+<p>Let’s augment our example to create a jail:</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode rust"><code class="sourceCode rust"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true"></a><span class="at">#[</span>proc_macro_attribute<span class="at">]</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true"></a><span class="kw">pub</span> <span class="kw">fn</span> jailed_test(_attrs<span class="op">:</span> TokenStream<span class="op">,</span> item<span class="op">:</span> TokenStream) <span class="op">-&gt;</span> TokenStream <span class="op">{</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true"></a>    <span class="kw">let</span> input <span class="op">=</span> <span class="pp">syn::parse_macro_input!</span>(item <span class="kw">as</span> ItemFn)<span class="op">;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true"></a>    <span class="kw">let</span> fn_name <span class="op">=</span> input<span class="op">.</span>sig<span class="op">.</span>ident<span class="op">;</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true"></a>    <span class="kw">let</span> block <span class="op">=</span> input<span class="op">.</span>block<span class="op">;</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true"></a></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true"></a>    <span class="kw">let</span> body <span class="op">=</span> <span class="pp">quote::quote!</span> <span class="op">{</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true"></a>        <span class="kw">use</span> <span class="pp">test_helpers::jail::</span>StoppedJail<span class="op">;</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true"></a></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true"></a>        <span class="kw">let</span> jail <span class="op">=</span> <span class="pp">StoppedJail::</span>new(<span class="st">&quot;/&quot;</span>)</span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true"></a>            <span class="op">.</span>param(<span class="st">&quot;vnet&quot;</span><span class="op">,</span> <span class="pp">jail::param::Value::</span>Int(<span class="dv">1</span>))</span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true"></a>            <span class="op">.</span>param(<span class="st">&quot;children.max&quot;</span><span class="op">,</span> <span class="pp">jail::param::Value::</span>Int(<span class="dv">100</span>))</span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true"></a>            <span class="op">.</span>start()</span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true"></a>            <span class="op">.</span>expect(<span class="st">&quot;Couldn't start jail&quot;</span>)<span class="op">;</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true"></a></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true"></a>        #block</span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true"></a></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true"></a>        jail<span class="op">.</span>defer_cleanup()</span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true"></a>            <span class="op">.</span>expect(<span class="st">&quot;failed to defer jail clean up&quot;</span>)<span class="op">;</span></span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true"></a>    <span class="op">};</span></span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true"></a></span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true"></a>    <span class="pp">quote::quote!</span>(</span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true"></a>        <span class="at">#[</span>test<span class="at">]</span></span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true"></a>        <span class="kw">fn</span> #fn_name() <span class="op">{</span></span>
+<span id="cb4-25"><a href="#cb4-25" aria-hidden="true"></a>            #body</span>
+<span id="cb4-26"><a href="#cb4-26" aria-hidden="true"></a>        <span class="op">}</span></span>
+<span id="cb4-27"><a href="#cb4-27" aria-hidden="true"></a>    )</span>
+<span id="cb4-28"><a href="#cb4-28" aria-hidden="true"></a>        <span class="op">.</span>into()</span>
+<span id="cb4-29"><a href="#cb4-29" aria-hidden="true"></a><span class="op">}</span></span></code></pre></div>
+<p>So far so good. We have created a jail, setting <code>vnet</code> parameter to virtualize the network stack and <code>children.max</code> to allow the newly created jail to have up to <code>100</code> child jails.</p>
+<p>Also we call <a href="https://fubarnetes.github.io/libjail-rs/x86_64-unknown-freebsd/jail/struct.RunningJail.html#method.defer_cleanup">jail.defer_cleanup()</a> to clear the persist flag and allow the kernel to stop the jail once our test finishes.</p>
+<p>However, the test still runs outside of the jail.</p>
+<h2 id="step-2.-putting-the-test-inside-the-jail-using-fork-and-jail_attach-syscalls.">Step 2. Putting the test inside the jail using fork and jail_attach syscalls.</h2>
+<p>In this step, we are spinning a new child process to run test code and putting it to jail. For brevity, I’m going to omit some code annotating the omitted parts using comments, if needed. The full example source code can be found at the end of the article.</p>
+<p>FreeBSD has <a href="https://www.freebsd.org/cgi/man.cgi?query=jail%282%29&amp;apropos=0&amp;sektion=2&amp;manpath=FreeBSD+13.0-current&amp;arch=default&amp;format=html">jail_attach</a> syscall:</p>
+<blockquote>
+<p>The jail_attach() system call attaches the current process to an existing jail, identified by jid.</p>
+</blockquote>
+<p>That’s exactly what we need. We are going to use <a href="https://www.freebsd.org/cgi/man.cgi?query=fork&amp;apropos=0&amp;sektion=2&amp;manpath=FreeBSD+13.0-current&amp;arch=default&amp;format=html">fork(2)</a> syscall, which creates a child process which is an identical copy of the currently running process.</p>
+<p>As we recall, Rust runs tests in multiple threads. Does that mean that after fork-ing the jail</p>
+<p>For <code>fork</code> and <code>waitpid</code> syscalls , we’ll utilize <a href="https://github.com/nix-rust/nix">nix</a> library, which provides Rust-friendly bindings to *nix APIs.</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode rust"><code class="sourceCode rust"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true"></a><span class="kw">use</span> <span class="pp">test_helpers::nix::unistd::</span><span class="op">{</span>fork<span class="op">,</span> ForkResult<span class="op">};</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true"></a></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true"></a><span class="kw">match</span> fork() <span class="op">{</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true"></a>    <span class="cn">Ok</span>(<span class="pp">ForkResult::</span>Child) <span class="op">=&gt;</span> <span class="op">{</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true"></a>        jail<span class="op">.</span>attach()<span class="op">.</span>unwrap()<span class="op">;</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true"></a>        <span class="kw">let</span> result <span class="op">=</span> <span class="pp">std::panic::</span>catch_unwind(<span class="op">||</span> <span class="op">{</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true"></a>            #block</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true"></a>        <span class="op">}</span>)<span class="op">;</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true"></a>    <span class="op">},</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true"></a>    <span class="cn">Ok</span>(<span class="pp">ForkResult::</span>Parent <span class="op">{</span> child<span class="op">:</span> child <span class="op">}</span>) <span class="op">=&gt;</span> <span class="op">{</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true"></a>    <span class="op">},</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true"></a>    _ <span class="op">=&gt;</span> <span class="pp">panic!</span>(<span class="st">&quot;Failed to fork&quot;</span>)<span class="op">,</span></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true"></a><span class="op">}</span></span></code></pre></div>
+<p><strong>Async-signal safety</strong>.</p>
+<p>A usual use-case for the <code>fork</code> call is to subsequently call <code>exec</code> or exit as soon as possible, since inside the forked environment one can safely call the limited subset of functions, so called async-signal-safe functions.</p>
+<p>From <a href="https://www.freebsd.org/cgi/man.cgi?query=fork&amp;apropos=0&amp;sektion=2&amp;manpath=FreeBSD+13.0-current&amp;arch=default&amp;format=html">fork(2)</a> manpage:</p>
+<blockquote>
+<p>The child process has only one thread, corresponding to the calling thread in the parent process. If the process has more than one thread, locks and other resources held by the other threads are not released and therefore only async-signal-safe functions (see sigaction(2)) are guaranteed to work in the child process until a call to execve(2) or a similar function.</p>
+</blockquote>
+<p>Simply put, locks are not released, and there’s a risk of deadlocks in child process.</p>
+<p><code>cargo test</code> basically is a multithreaded program, so we should be extra-careful with locks.</p>
+<p><a href="https://www.freebsd.org/cgi/man.cgi?query=sigaction%282%29&amp;apropos=0&amp;sektion=2&amp;manpath=FreeBSD+13.0-current&amp;arch=default&amp;format=html">sigaction(2)</a> provides the list of <code>async-signal-safe</code> functions. <code>memcpy</code> is a safe function, which effectively means that Rust’s moves semantics works just fine.</p>
+<p>What about heap-allocated objects? Under the hood, <code>malloc</code> implementations will likely use <code>mmap</code> and <code>munmap</code> calls, which are not marked as <code>async-signal-safe</code>. Moreover, <code>malloc</code> implementations must use some sort of synchronization primitives (read mutexes) to protect their internal structures in multithreaded environments.</p>
+<p>That’s a disaster for our plan, isn’t it? Theoretically, yes, but practically FreeBSD’s allocator <code>jemalloc</code><a href="#fn2" class="footnote-ref" id="fnref2" role="doc-noteref"><sup>2</sup></a> minimizes use of locking. Moreover, <code>jemalloc</code> makes an attempt to free locks using a <a href="https://www.freebsd.org/cgi/man.cgi?query=pthread_atfork&amp;apropos=0&amp;sektion=0&amp;manpath=FreeBSD+12.2-RELEASE+and+Ports&amp;arch=default&amp;format=html">pthread_atfork(3)</a> fork handler<a href="#fn3" class="footnote-ref" id="fnref3" role="doc-noteref"><sup>3</sup></a>.</p>
+<p><strong>To conclude</strong>, tests should not acquire locks (shared with other tests), should minimize the use of global environment, and should generally stick to async-signal-safe functions. While it might sound like a show-stopper for a general case, it doesn’t matter much for our particular scenario, since the tests mainly target the network stack and the stack is unique to each test thanks to VNET capabilities.</p>
+<h2 id="step-3.-child-executes-the-test-body.">Step 3. Child executes the test body.</h2>
+<p>This one is fairly simple. We execute the test, child makes some assertions, eventually exits successfully or panics. In the latter case we’ll need to communicate with parent that test has failed &amp; the panic body itself.</p>
+<p>Normally, panicking processes exit with a non-zero status, so the parent process is able to tell that a child terminated abnormally (with zero signal). At the time of writing, however, this is not the case due to <a href="https://github.com/rust-lang/rust/issues/79740">this bug</a>, so we’ll need to implement a workaround.</p>
+<p>The workaround I came up with is brain-dead. We are going to abort the process, and the parent will be able to distinguish this situation via <a href="https://www.freebsd.org/cgi/man.cgi?query=waitpid&amp;apropos=0&amp;sektion=0&amp;manpath=FreeBSD+13.0-current&amp;arch=default&amp;format=html">waitpid(2)</a>.</p>
+<p>So the plan is: first <a href="https://doc.rust-lang.org/std/panic/fn.catch_unwind.html">catch the panic</a>, then abort. Yup, to the code.</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode rust"><code class="sourceCode rust"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true"></a>jail<span class="op">.</span>attach()<span class="op">.</span>unwrap()<span class="op">;</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true"></a><span class="kw">let</span> result <span class="op">=</span> <span class="pp">std::panic::</span>catch_unwind(<span class="op">||</span> <span class="op">{</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true"></a>    #block</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true"></a><span class="op">}</span>)<span class="op">;</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true"></a></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true"></a><span class="kw">if</span> <span class="kw">let</span> <span class="cn">Err</span>(err) <span class="op">=</span> result <span class="op">{</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true"></a>    <span class="co">// The place for inter-process communication!</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true"></a>    <span class="pp">std::process::</span>abort()<span class="op">;</span></span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true"></a><span class="op">};</span></span></code></pre></div>
+<p><strong>Not every panic unwinds</strong> Panics in Rust can be implemented as aborts to save that precious disk space. Our trick won’t work in this case.</p>
+<h2 id="step-4.-child-communicates-test-results-to-parent-via-some-form-of-ipc.">Step 4. Child communicates test results to parent via some form of IPC.</h2>
+<p>Parent &amp; child have their own address spaces. That means we can’t use the heap to communicate the exit status.</p>
+<p>However, we can create an anonymous memory-mapped region, into which the child can write, and from which parent can read.</p>
+<p>How will we serialize the panic? It turns out, the result returned by <code>std::panic::catch_unwind</code> contains an error, which can be downcasted to a string. Different approach are possible here, we are going to use <a href="https://github.com/bincode-org/bincode">bincode</a> library for (de)serialization.</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode rust"><code class="sourceCode rust"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true"></a><span class="co">// Imports omitted</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true"></a><span class="kw">use</span> <span class="pp">test_helpers::memmap::</span>MmapMut<span class="op">;</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true"></a><span class="kw">use</span> <span class="pp">test_helpers::</span>bincode<span class="op">;</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true"></a></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true"></a><span class="kw">let</span> <span class="kw">mut</span> mmap <span class="op">=</span> <span class="pp">MmapMut::</span>map_anon(<span class="dv">1024</span>)<span class="op">.</span>expect(<span class="st">&quot;failed to create a mmap&quot;</span>)<span class="op">;</span></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true"></a></span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true"></a><span class="co">// Jail creation omitted</span></span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true"></a></span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true"></a><span class="kw">match</span> fork() <span class="op">{</span></span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true"></a>    <span class="cn">Ok</span>(<span class="pp">ForkResult::</span>Child) <span class="op">=&gt;</span> <span class="op">{</span></span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true"></a>        jail<span class="op">.</span>attach()<span class="op">.</span>unwrap()<span class="op">;</span></span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true"></a>        <span class="kw">let</span> result <span class="op">=</span> <span class="pp">std::panic::</span>catch_unwind(<span class="op">||</span> <span class="op">{</span></span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true"></a>            #block</span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true"></a>        <span class="op">}</span>)<span class="op">;</span></span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true"></a></span>
+<span id="cb7-16"><a href="#cb7-16" aria-hidden="true"></a>        <span class="kw">if</span> <span class="kw">let</span> <span class="cn">Err</span>(err) <span class="op">=</span> result <span class="op">{</span></span>
+<span id="cb7-17"><a href="#cb7-17" aria-hidden="true"></a>            err<span class="op">.</span><span class="pp">downcast_ref::</span><span class="op">&lt;</span><span class="dt">String</span><span class="op">&gt;</span>()</span>
+<span id="cb7-18"><a href="#cb7-18" aria-hidden="true"></a>                <span class="op">.</span>and_then(<span class="op">|</span>string<span class="op">|</span> <span class="op">{</span></span>
+<span id="cb7-19"><a href="#cb7-19" aria-hidden="true"></a>                    <span class="pp">bincode::</span>serialize(<span class="op">&amp;</span><span class="pp">format!</span>(<span class="st">&quot;{:?}&quot;</span><span class="op">,</span> string))</span>
+<span id="cb7-20"><a href="#cb7-20" aria-hidden="true"></a>                        <span class="op">.</span>and_then(<span class="op">|</span>serialized<span class="op">|</span> <span class="op">{</span></span>
+<span id="cb7-21"><a href="#cb7-21" aria-hidden="true"></a>                            <span class="cn">Ok</span>((<span class="op">&amp;</span><span class="kw">mut</span> mmap[<span class="op">..</span>])<span class="op">.</span>write_all(<span class="op">&amp;</span>serialized[<span class="op">..</span>])<span class="op">?</span>)</span>
+<span id="cb7-22"><a href="#cb7-22" aria-hidden="true"></a>                        <span class="op">}</span>)<span class="op">.</span>ok()</span>
+<span id="cb7-23"><a href="#cb7-23" aria-hidden="true"></a>                <span class="op">}</span>)<span class="op">.</span>unwrap_or(())<span class="op">;</span></span>
+<span id="cb7-24"><a href="#cb7-24" aria-hidden="true"></a>            <span class="pp">std::process::</span>abort()<span class="op">;</span></span>
+<span id="cb7-25"><a href="#cb7-25" aria-hidden="true"></a>        <span class="op">};</span></span>
+<span id="cb7-26"><a href="#cb7-26" aria-hidden="true"></a>    <span class="op">},</span></span>
+<span id="cb7-27"><a href="#cb7-27" aria-hidden="true"></a>    <span class="cn">Ok</span>(<span class="pp">ForkResult::</span>Parent <span class="op">{</span> child<span class="op">:</span> child <span class="op">}</span>) <span class="op">=&gt;</span> <span class="op">{</span></span>
+<span id="cb7-28"><a href="#cb7-28" aria-hidden="true"></a>    <span class="op">},</span></span>
+<span id="cb7-29"><a href="#cb7-29" aria-hidden="true"></a>    _ <span class="op">=&gt;</span> <span class="pp">panic!</span>(<span class="st">&quot;Failed to fork&quot;</span>)<span class="op">,</span></span>
+<span id="cb7-30"><a href="#cb7-30" aria-hidden="true"></a><span class="op">}</span></span></code></pre></div>
+<p>One additional limitation imposed here is the memory map size. It’s 1024 bytes, which’s enough for relatively short panics. Think of panics generated by diesel or any other library with complicated types.</p>
+<h2 id="step-5.-parent-waits-for-the-child-process-and-propagates-the-results-to-caller.">Step 5. Parent waits for the child process and propagates the results to caller.</h2>
+<p>Almost there. Now, parent needs to wait for the child to complete (either exiting sucessfully or issuing a <code>SIGABRT</code> signal). Let’s not forget to tell the kernel that we don’t need the jail anymore by clearing the <code>persist</code> flag.</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode rust"><code class="sourceCode rust"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true"></a><span class="kw">match</span> fork() <span class="op">{</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true"></a>    <span class="cn">Ok</span>(<span class="pp">ForkResult::</span>Child) <span class="op">=&gt;</span> <span class="op">{</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true"></a>        <span class="co">// Omitted</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true"></a>    <span class="op">},</span></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true"></a>    <span class="cn">Ok</span>(<span class="pp">ForkResult::</span>Parent <span class="op">{</span> child<span class="op">:</span> child <span class="op">}</span>) <span class="op">=&gt;</span> <span class="op">{</span></span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true"></a>        <span class="kw">let</span> status <span class="op">=</span> waitpid(child<span class="op">,</span> <span class="cn">None</span>)</span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true"></a>            <span class="op">.</span>expect(<span class="st">&quot;failed to wait the child process&quot;</span>)<span class="op">;</span></span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true"></a>        jail<span class="op">.</span>defer_cleanup()</span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true"></a>            <span class="op">.</span>expect(<span class="st">&quot;failed to defer jail clean up&quot;</span>)<span class="op">;</span></span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true"></a></span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true"></a>        <span class="kw">match</span> status <span class="op">{</span></span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true"></a>            <span class="pp">WaitStatus::</span>Exited(_<span class="op">,</span> <span class="dv">0</span>) <span class="op">=&gt;</span> ()<span class="op">,</span></span>
+<span id="cb8-13"><a href="#cb8-13" aria-hidden="true"></a>            <span class="pp">WaitStatus::</span>Signaled(_<span class="op">,</span> <span class="pp">Signal::</span>SIGABRT<span class="op">,</span> _) <span class="op">=&gt;</span> <span class="op">{</span></span>
+<span id="cb8-14"><a href="#cb8-14" aria-hidden="true"></a>                <span class="kw">let</span> error<span class="op">:</span> <span class="dt">String</span> <span class="op">=</span> <span class="pp">bincode::</span>deserialize(<span class="op">&amp;</span>mmap)<span class="op">.</span>expect(</span>
+<span id="cb8-15"><a href="#cb8-15" aria-hidden="true"></a>                    <span class="st">&quot;Test failed, but result couldn't be deserialized&quot;</span></span>
+<span id="cb8-16"><a href="#cb8-16" aria-hidden="true"></a>                )<span class="op">;</span></span>
+<span id="cb8-17"><a href="#cb8-17" aria-hidden="true"></a></span>
+<span id="cb8-18"><a href="#cb8-18" aria-hidden="true"></a>                <span class="pp">panic!</span>(<span class="st">&quot;{}&quot;</span><span class="op">,</span> error)<span class="op">;</span></span>
+<span id="cb8-19"><a href="#cb8-19" aria-hidden="true"></a>            <span class="op">},</span></span>
+<span id="cb8-20"><a href="#cb8-20" aria-hidden="true"></a>            status <span class="op">=&gt;</span> <span class="op">{</span></span>
+<span id="cb8-21"><a href="#cb8-21" aria-hidden="true"></a>                <span class="pp">panic!</span>(<span class="st">&quot;Unexpected jailed process status {:?}&quot;</span><span class="op">,</span> status)<span class="op">;</span></span>
+<span id="cb8-22"><a href="#cb8-22" aria-hidden="true"></a>            <span class="op">}</span></span>
+<span id="cb8-23"><a href="#cb8-23" aria-hidden="true"></a>        <span class="op">}</span></span>
+<span id="cb8-24"><a href="#cb8-24" aria-hidden="true"></a>    <span class="op">},</span></span>
+<span id="cb8-25"><a href="#cb8-25" aria-hidden="true"></a>    _ <span class="op">=&gt;</span> <span class="pp">panic!</span>(<span class="st">&quot;Failed to fork&quot;</span>)<span class="op">,</span></span>
+<span id="cb8-26"><a href="#cb8-26" aria-hidden="true"></a><span class="op">}</span></span></code></pre></div>
+<h1 id="conclusion">Conclusion</h1>
+<p>Although <code>async-signal-safety</code> imposes many limitations on the forked environment, for this case the ability to not worry about restoring the network stack state after a test run and the ability to run such tests in parallel outweighs the reduced safety guarantees.</p>
+<p>That’s it folks. Can’t stress this enough, don’t use this technique in user application code.</p>
+<p>The full macro code alongside boilerplate is available on <a href="https://github.com/akhramov/werft/blob/master/test_helpers/procedural_macros/src/lib.rs">GitHub</a>.</p>
+<p>The examples of tests using this macro can be found there as well:</p>
+<p><a href="https://github.com/akhramov/werft/blob/76c7a8bdc6f577aee48c235a220a653f1284a293/netzwerk/src/pf.rs#L331-L339">Example 1</a>. Programmatic NAT configuration with PF</p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode rust"><code class="sourceCode rust"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true"></a><span class="at">#[</span><span class="pp">test_helpers::</span>jailed_test<span class="at">]</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true"></a><span class="kw">fn</span> test_nat_rules_are_populated() <span class="op">{</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true"></a>    <span class="kw">let</span> interface <span class="op">=</span> <span class="st">&quot;wlan0&quot;</span><span class="op">;</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true"></a>    create_nat(interface<span class="op">,</span> <span class="st">&quot;172.24.0.0/24&quot;</span>)<span class="op">;</span></span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true"></a>    <span class="pp">assert!</span>(get_anchor_rules(<span class="st">&quot;knast_anker&quot;</span>)<span class="op">.</span>contains(<span class="op">&amp;</span><span class="pp">format!</span>(</span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true"></a>        <span class="st">&quot;nat on {interface} inet from &lt;jails&gt; to any -&gt; ({interface}:0)&quot;</span><span class="op">,</span></span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true"></a>        interface <span class="op">=</span> interface</span>
+<span id="cb9-8"><a href="#cb9-8" aria-hidden="true"></a>    )))<span class="op">;</span></span>
+<span id="cb9-9"><a href="#cb9-9" aria-hidden="true"></a><span class="op">}</span></span></code></pre></div>
+<p><a href="https://github.com/akhramov/werft/blob/76c7a8bdc6f577aee48c235a220a653f1284a293/netzwerk/src/route.rs#L48-L57">Example 2</a>. Programmatically add a default route.</p>
+<div class="sourceCode" id="cb10"><pre class="sourceCode rust"><code class="sourceCode rust"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true"></a><span class="at">#[</span><span class="pp">test_helpers::</span>jailed_test<span class="at">]</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true"></a><span class="kw">fn</span> test_add_default() <span class="op">{</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true"></a>    setup_lo()<span class="op">;</span></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true"></a>    add_default(<span class="st">&quot;127.0.0.1&quot;</span>)<span class="op">.</span>expect(<span class="st">&quot;failed to add default route&quot;</span>)<span class="op">;</span></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true"></a></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true"></a>    <span class="kw">let</span> content <span class="op">=</span> routing_tables_content()</span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true"></a>        <span class="op">.</span>expect(<span class="st">&quot;(netstat) failed to get routing tables content&quot;</span>)<span class="op">;</span></span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true"></a></span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true"></a>    <span class="pp">assert!</span>(content<span class="op">.</span>contains(<span class="st">&quot;default            127.0.0.1&quot;</span>))<span class="op">;</span></span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true"></a><span class="op">}</span></span></code></pre></div>
+<section class="footnotes" role="doc-endnotes">
+<hr />
+<ol>
+<li id="fn1" role="doc-endnote"><p>Yes, mathematicians, it’s a homomorphism!<a href="#fnref1" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn2" role="doc-endnote"><p>Yes, Rust folk, it’s the default Rust allocator of the past. Read more here: <a href="https://doc.rust-lang.org/edition-guide/rust-next/no-jemalloc.html">https://doc.rust-lang.org/edition-guide/rust-next/no-jemalloc.html</a><a href="#fnref2" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn3" role="doc-endnote"><p>It’s not a silver bullet against malloc-induced deadlocks. See <a href="https://github.com/freebsd/freebsd-src/blob/098dbd7ff7f3da9dda03802cdb2d8755f816eada/contrib/jemalloc/src/jemalloc.c#L3840-L3852">https://github.com/freebsd/freebsd-src/blob/098dbd7ff7f3da9dda03802cdb2d8755f816eada/contrib/jemalloc/src/jemalloc.c#L3840-L3852</a><a href="#fnref3" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+</ol>
+</section>
+    </section>
+</article>
+
+      </main>
+
+      <footer>
+        Site proudly generated by
+        <a href="http://jaspervdj.be/hakyll">Hakyll</a>. Source is available on <a href="https://github.com/akhramov/akhramov.github.io">GitHub</a>.
+      </footer>
+    </div>
+  </body>
+</html>
