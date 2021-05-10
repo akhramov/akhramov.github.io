@@ -5,6 +5,7 @@ many things, like finally learning Agda, finishing TAPL, reading a
 dozen of books on Medieval history.
 But most importantly I would like to improve my workflow by turning
 Emacs into platform-agnostic ultimate OS. Here's what I'd do."
+description: Emacs wishes for 2018
 tags: emacs
 ------
 

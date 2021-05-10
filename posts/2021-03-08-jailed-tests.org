@@ -5,6 +5,7 @@ error-prone. Network stack acts as a shared environment, so tests
 can't really run in parallel. God forbid if you tickle the firewall
 rules and the test fails to restore the original state. You end up
 frustrated and cut-out of the internet. Does this all sound familiar?"
+description: "Jailing Rust tests with procedural macros"
 tags: FreeBSD, VNET, Rust, containers, jail
 ------
 #+OPTIONS: ^:{}
