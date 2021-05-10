@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+    <title>akhramov personal blog</title>
+    <link href="https://akhramov.github.io/atom.xml" rel="self" />
+    <link href="https://akhramov.github.io" />
+    <id>https://akhramov.github.io/atom.xml</id>
+    <author>
+        <name>Artem Khramov</name>
+        <email>akhramov+blog@pm.me</email>
+    </author>
+    <updated>2021-03-08T00:00:00Z</updated>
+    <entry>
+    <title>Jailing Rust tests with procedural macros</title>
+    <link href="https://akhramov.github.io/posts/2021-03-08-jailed-tests.html" />
+    <id>https://akhramov.github.io/posts/2021-03-08-jailed-tests.html</id>
+    <published>2021-03-08T00:00:00Z</published>
+    <updated>2021-03-08T00:00:00Z</updated>
+    <summary type="html"><![CDATA[Jailing Rust tests with procedural macros]]></summary>
+</entry>
+<entry>
+    <title>Emacs wishes for 2018</title>
+    <link href="https://akhramov.github.io/posts/2017-12-27-emacs-wishes-2018.html" />
+    <id>https://akhramov.github.io/posts/2017-12-27-emacs-wishes-2018.html</id>
+    <published>2017-12-27T00:00:00Z</published>
+    <updated>2017-12-27T00:00:00Z</updated>
+    <summary type="html"><![CDATA[Emacs wishes for 2018]]></summary>
+</entry>
+
+</feed>
