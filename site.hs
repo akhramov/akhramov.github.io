@@ -7,6 +7,15 @@ import           Hakyll
 import           System.FilePath (replaceExtension)
 --------------------------------------------------------------------------------
 
+myFeedConfiguration :: FeedConfiguration
+myFeedConfiguration = FeedConfiguration
+    { feedTitle       = "akhramov personal blog"
+    , feedDescription = "Latest posts"
+    , feedAuthorName  = "Artem Khramov"
+    , feedAuthorEmail = "akhramov+blog@pm.me"
+    , feedRoot        = "https://akhramov.github.io"
+    }
+
 setExtensionAndLower :: String -> Routes
 setExtensionAndLower extension = customRoute $
  (map toLower) . (`replaceExtension` extension) . toFilePath
@@ -46,6 +55,7 @@ main = hakyll $ do
         route $ setExtension "html"
         compile $ pandocCompiler
             >>= loadAndApplyTemplate "templates/post.html"    (postCtx tags)
+            >>= saveSnapshot "content"
             >>= loadAndApplyTemplate "templates/default.html" (postCtx tags)
             >>= relativizeUrls
 
@@ -63,6 +73,19 @@ main = hakyll $ do
                 >>= loadAndApplyTemplate "templates/default.html" archiveCtx
                 >>= relativizeUrls
 
+    create ["rss.xml"] $ do
+            route idRoute
+            compile $ do
+                loadAllSnapshots "posts/*" "content"
+                    >>= recentFirst
+                    >>= renderRss myFeedConfiguration (postCtx tags)
+
+    create ["atom.xml"] $ do
+        route idRoute
+        compile $ do
+            posts <- fmap (take 10) . recentFirst =<<
+                loadAllSnapshots "posts/*" "content"
+            renderAtom myFeedConfiguration (postCtx tags) posts
 
     match "index.html" $ do
         route idRoute
