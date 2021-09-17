@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Blog - On FreeBSD OCI Containers</title>
+    <link rel="stylesheet" href="../css/default.css" />
+  </head>
+  <body>
+    <div id="container">
+      <header>
+        <nav>
+          <a href="../">Home</a>
+          <a href="../about.html">About</a>
+          <a href="../archive.html">Archive</a>
+          <a href="../atom.xml">Atom</a>
+          <a href="../rss.xml">RSS</a>
+        </nav>
+      </header>
+
+      <main role="main">
+        <h1 class="On FreeBSD OCI Containers pageTitle">On FreeBSD OCI Containers</h1>
+        <article>
+    <section class="header">
+        Posted on September 16, 2021
+        
+        <div class="info">
+          
+          Tags: <a title="All pages tagged 'FreeBSD'." href="../tags/FreeBSD.html">FreeBSD</a>, <a title="All pages tagged 'VNET'." href="../tags/VNET.html">VNET</a>, <a title="All pages tagged 'Rust'." href="../tags/Rust.html">Rust</a>, <a title="All pages tagged 'containers'." href="../tags/containers.html">containers</a>, <a title="All pages tagged 'jail'." href="../tags/jail.html">jail</a>, <a title="All pages tagged 'OCI'." href="../tags/OCI.html">OCI</a>
+          
+        </div>
+    </section>
+    <section>
+        
+<ul>
+<li><a href="#an-attempt-to-re-implement-docker-engine-api">An attempt to re-implement Docker Engine API</a>
+<ul>
+<li><a href="#registry-component-die-registratur">Registry component (<span>die Registratur</span>)</a></li>
+<li><a href="#builder-component-die-baustelle">Builder component (<span>die Baustelle</span>)</a></li>
+<li><a href="#network-component-das-netzwerk">Network component (<span>das Netzwerk</span>)</a></li>
+<li><a href="#a-library-for-building-containers-libknast">A library for building containers (<span>libknast</span>)</a></li>
+<li><a href="#moral">Moral</a></li>
+</ul></li>
+<li><a href="#a-containerd-shim-implementation">A containerd shim implementation</a></li>
+<li><a href="#running-your-first-freebsd-container">Running your first FreeBSD container</a></li>
+<li><a href="#conclusions">Conclusions</a></li>
+</ul>
+<p>Coming back from FOSDEM 2020, I decided to do something big, something I could be proud of.</p>
+<p>The work toolkit of then-be outsource software engineer consisted mostly of boring tools that get the job done. One of them was docker. It was not too difficult to run docker on FreeBSD inside a bhyve virtual machine and use the client from the <a href="https://www.freshports.org/sysutils/docker/">ports</a>. I lived that way for years.</p>
+<p>The coronavirus crisis had arrived, but unfortunately I didn’t have much more time as I was preparing for interviews at Google. Fortunately, I failed at the very last stage, so I finally could take some time off leetcode to dive into the frenzy.</p>
+<hr />
+<h1 id="an-attempt-to-re-implement-docker-engine-api">An attempt to re-implement Docker Engine API</h1>
+<p>So I did the thing that one should not ever try to do. I decided to rewrite the <a href="https://docs.docker.com/engine/api/v1.41/">docker engine API</a> to support FreeBSD jails.</p>
+<p>Of course, I could justify this:</p>
+<ul>
+<li><p>Even though docker supports custom <a href="https://docs.docker.com/engine/reference/commandline/dockerd/#daemon-configuration-file">runtimes</a>, implementing just the runtime won’t be enough. The builder, networking, interactions with registries still would need to be implemented.</p></li>
+<li><p>I didn’t know Go! The best Go developers in the industry would have shamed me for my code. Heck, let’s rewrite everything in C or Rust to avoid such destiny.</p></li>
+</ul>
+<p>Not realizing the full extent and complexity of the task, I began to implement the builder &amp; registry interaction, and networking components.</p>
+<h3 id="registry-component-die-registratur">Registry component (<a href="https://github.com/akhramov/knast/tree/master/registratur">die Registratur</a>)</h3>
+<p>Registry component is capable of pulling &amp; persisting images to a local cache. The push was not implemented, as was not required for MVP (running containers).</p>
+<h3 id="builder-component-die-baustelle">Builder component (<a href="https://github.com/akhramov/knast/tree/master/baustelle">die Baustelle</a>)</h3>
+<p>Builder is capable of unpacking fetched images, by <a href="https://github.com/opencontainers/image-spec/blob/main/layer.md#applying">applying</a> the changesets.</p>
+<p>Builder also supports a limited version of dockerfile syntax.</p>
+<h3 id="network-component-das-netzwerk">Network component (<a href="https://github.com/akhramov/knast/tree/master/netzwerk">das Netzwerk</a>)</h3>
+<p>Unlike the previous two, this component must be implemented in some form, even if the docker engine itself is ported. I have managed to create a Rust library for creating bridged VNET jails using PF + epair, pretty much as described in the <a href="https://issue.freebsdfoundation.org/publication/?m=33057&amp;i=651491&amp;p=23&amp;ver=html5">January/February 2020 FreeBSD magazine</a>, but using Kernel programming interfaces. This is important so that the jails do not need to have route / ifconfig binaries inside. Read: Linux jails.</p>
+<h3 id="a-library-for-building-containers-libknast">A library for building containers (<a href="https://github.com/akhramov/knast/tree/master/libknast">libknast</a>)</h3>
+<p>This library is designed to create container runtimes. Whether it is specification-compatible runtimes or something else is irrelevant. The library is loosely based on <a href="https://github.com/opencontainers/runtime-spec">the specification</a> in the sense that it accepts OCI runtime configs, can mount/unmount file systems, run processes, and so on.</p>
+<h3 id="moral">Moral</h3>
+<p>I underestimated the required effort. As I was wiresharking docker engine traffic in the attempt to reverse the protocol, grabbing my head in horror, some good news came along, rendering this questionable initiative useless. More on that in the next section.</p>
+<p>Nevertheless, I could learn from it.</p>
+<ul>
+<li><p>Don’t try to do large jobs without exploring alternative approaches.</p></li>
+<li><p>Use <a href="https://github.com/rust-lang/rust-bindgen">rust-bindgen</a> for generating FFI bindings.</p>
+<p>It struck me twice in a short period of time.</p>
+<ul>
+<li><p>The first was unrelated to the topic, but there was <a href="https://github.com/benfred/py-spy/issues/431">a bug</a> in the py-spy proc map routines on FreeBSD. Bindings, manually written, did not work on a machine that I did not have access to.</p>
+<p>Apparently <code>vm_entry</code> structure is different on reporter’s machine.</p></li>
+<li><p>The second case is far more interesting. Kernel panicked when Netzwerk assigned addresses.</p>
+<p>The cause is <code>ifra_vhid</code> field of <code>ifaliasreq</code> structure. If <code>carp(4)</code> isn’t loaded and that field is set to a negative value <code>SIOCAIFADDR</code> panics.</p>
+<p>Why did Netzwerk set a negative value in the first place? Correct. It didn’t. The value was uninitialized and contained negative garbage.</p>
+<p>I <a href="https://github.com/freebsd/freebsd-src/pull/530">contributed</a> the fix alongside the repro to the FreeBSD source repository.</p></li>
+</ul></li>
+<li><p>Contributing to FreeBSD is super easy.</p>
+<p>Really, just sending a pull request to GitHub works just fine. I examined the reviewers patience twice during the journey.</p></li>
+<li><p>Lastly, I learned OCI concepts.</p></li>
+</ul>
+<hr />
+<h1 id="a-containerd-shim-implementation">A containerd shim implementation</h1>
+<p>Apparently I’m not the only one who’s been interested in running FreeBSD jails as OCI containers.</p>
+<p>Samuel Karp ported containerd to FreeBSD and <a href="https://samuel.karp.dev/blog/2021/05/running-freebsd-jails-with-containerd-1-5/">authored</a> a <a href="https://github.com/containerd/containerd/blob/261c107ffc4ff681bc73988f64e3f60c32233b37/runtime/v2/README.md">containerd shim</a> using the interfaces provided by containerd. This is the way it is supposed to be done in the first place.</p>
+<p>Knast project became no longer relevant, but I still wanted to explore the limits of an alternative realization for education purposes.</p>
+<p>Here’s the design goals I took in implementing containerd shim.</p>
+<p><strong>Keep the Rust realization</strong></p>
+<p>Containerd uses ttrpc (GRPC with wire protocol optimized for low-memory environments). Luckily, there’s <a href="https://github.com/containerd/ttrpc-rust ">Rust library</a> to author ttrpc applications.</p>
+<p><strong>One shim to rule them all</strong></p>
+<p>Usually containerd spawns one shim per container. However, one shim can manage several containers reducing the memory footprint.</p>
+<p><strong>No external binaries.</strong></p>
+<p>As briefly discussed above, not depending on external libraries can benefit for running non-FreeBSD jails.</p>
+<hr />
+<h1 id="running-your-first-freebsd-container">Running your first FreeBSD container</h1>
+<p>Okay, sold. How do I operate this thing?</p>
+<p>In this section we are going to setup nerdctl (a contaiNERD client). nerdctl provides UX close to docker while also is easy to port and operate.</p>
+<p><strong>[0/4] Kernel configuration</strong></p>
+<p>Generic FreeBSD 13 and higher. Versions earlier than <a href="https://github.com/freebsd/freebsd-src/commit/e3c51151a09a22dd416caf74f70bda961088832d">e3c51151a09a</a> are guaranteed not to work.</p>
+<p>For bridges, knast internally uses PF anchors &amp; epair(4) interfaces. One end is given to the jail, the other one is attached to the bridge.</p>
+<p>If you want your containers to reach the Internet, you also need to enable IP forwarding.</p>
+<div class="sourceCode" id="cb1" data-org-language="sh"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true"></a><span class="ex">sysctl</span> net.inet.ip.forwarding=1</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true"></a><span class="ex">sysrc</span> pf_enable=YES</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true"></a><span class="ex">kldload</span> if_epair</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true"></a><span class="ex">kldload</span> if_bridge</span></code></pre></div>
+<p><strong>[1/4] Building &amp; installing containerd-shim</strong></p>
+<p>Install the prerequisites:</p>
+<div class="sourceCode" id="cb2" data-org-language="sh"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true"></a><span class="co"># Runtime deps</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true"></a><span class="ex">pkg</span> install -y libarchive sqlite3</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true"></a><span class="co"># Build deps</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true"></a><span class="ex">pkg</span> install rust</span></code></pre></div>
+<p>Clone the repository</p>
+<div class="sourceCode" id="cb3" data-org-language="sh"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true"></a><span class="fu">git</span> clone https://github.com/akhramov/knast</span></code></pre></div>
+<p>Build the shim</p>
+<div class="sourceCode" id="cb4" data-org-language="sh"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true"></a><span class="ex">cargo</span> build --release</span></code></pre></div>
+<p>Install the shim</p>
+<div class="sourceCode" id="cb5" data-org-language="sh"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true"></a><span class="fu">install</span> target/release/containerd-shim /usr/local/bin/containerd-shim-runc-v2</span></code></pre></div>
+<p><strong>[2/4] Building containerd</strong></p>
+<p>Follow <a href="https://github.com/containerd/containerd/blob/da6b0efccde2b9f815bc49200593c4d2110a6397/BUILDING.md">instructions</a>. Once containerd is built, run the binary as root.</p>
+<p><strong>[3/4] Building buildkitd &amp; buildctl</strong></p>
+<p>Buildkitd and its client buildkitctl are used by nerdctl to build container images (read: Dockerfiles).</p>
+<p>At the time of writing, these are not officially ported to FreeBSD. However, an experimental dirty port was created for demonstration purposes.</p>
+<p>Clone buildkit (Check if <a href="https://github.com/moby/buildkit">the original repo</a> has FreeBSD support first!)</p>
+<div class="sourceCode" id="cb6" data-org-language="sh"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true"></a><span class="ex">git@github.com</span>:akhramov/buildkit.git</span></code></pre></div>
+<p>Build &amp; install buildkitd</p>
+<div class="sourceCode" id="cb7" data-org-language="sh"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true"></a><span class="bu">cd</span> cmd/buildkitd</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true"></a><span class="ex">go</span> build</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true"></a><span class="fu">install</span> buildkitd /usr/local/bin</span></code></pre></div>
+<p>Build &amp; install buildkitctl</p>
+<div class="sourceCode" id="cb8" data-org-language="sh"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true"></a><span class="bu">cd</span> cmd/buildkitctl</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true"></a><span class="ex">go</span> build</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true"></a><span class="fu">install</span> buildkitctl /usr/local/bin</span></code></pre></div>
+<p><strong>[4/4] nerdctl &amp; usage examples</strong></p>
+<p>Depending on whether <a href="https://github.com/containerd/nerdctl/pull/361">https://github.com/containerd/nerdctl/pull/361</a> is merged, clone the corresponding repository.</p>
+<p>Build &amp; install nerdctl</p>
+<div class="sourceCode" id="cb9" data-org-language="sh"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true"></a><span class="bu">cd</span> cmd/nerdctl</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true"></a><span class="ex">go</span> build</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true"></a><span class="fu">install</span> nerdctl /usr/local/bin</span></code></pre></div>
+<p>You are all set up. Let’s run some workloads.</p>
+<p>For demonstration purposes, I’ve pushed the FreeBSD 13 world to dockerhub. nerdctl has almost the same UX as docker CLI.</p>
+<p>Please note that with knast we need to pass <code>--net none</code>, since CNI plugins are not implemented yet. For now, network setup is performed by runtime.</p>
+<p><strong>bulding Dockerfile</strong></p>
+<a href="https://asciinema.org/a/4MR5uJMI10IeIy3T1YjUDLJUt" target="_blank">
+  <img style="max-width: 100%; width: 100%;" src="https://asciinema.org/a/4MR5uJMI10IeIy3T1YjUDLJUt.svg" alt="Image of terminal session. Nginx Dockerfile is being built on FreeBSD." />
+</a>
+
+<p><strong>running a container</strong></p>
+<a href="https://asciinema.org/a/Eq2VlOEbSJdO6YgO13ZUsXbLX" target="_blank">
+  <img style="max-width: 100%; width: 100%;" src="https://asciinema.org/a/Eq2VlOEbSJdO6YgO13ZUsXbLX.svg" alt="Image of terminal session. Nginx container is run on FreeBSD." />
+</a>
+
+<p><strong>Linux Containers</strong></p>
+<p>Okay, this one is not public yet, since nerdctl doesn’t support the <code>--platform</code> flag. But works quite well.</p>
+<a href="https://asciinema.org/a/Bn4osCfx8kLo1WbShWCywh7Cp" target="_blank">
+  <img style="max-width: 100%; width: 100%;" src="https://asciinema.org/a/Bn4osCfx8kLo1WbShWCywh7Cp.svg" alt="Image of terminal session. Debian 8 container is run on FreeBSD." />
+</a>
+
+<h1 id="conclusions">Conclusions</h1>
+<p>I will most likely abandon Knast and focus on porting tooling &amp; conventional runtimes. The work done will not be in vain as the experience can be reused.</p>
+<p>The most priority items, it seems to me, are</p>
+<ul>
+<li>CNI bridge plugin for network support</li>
+<li>Enhancing tooling support (buildkit and nerdctl in particular).</li>
+<li>Enhancing runj runtime</li>
+</ul>
+    </section>
+</article>
+
+      </main>
+
+      <footer>
+        Site proudly generated by
+        <a href="http://jaspervdj.be/hakyll">Hakyll</a>. Source is available on <a href="https://github.com/akhramov/akhramov.github.io">GitHub</a>.
+      </footer>
+    </div>
+  </body>
+</html>

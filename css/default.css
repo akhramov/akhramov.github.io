@@ -68,6 +68,17 @@ body
 }
 
 }
+blockquote
+{
+  -webkit-box-shadow : -4px 0px #000000;
+  -moz-box-shadow    : -4px 0px #000000;
+  -ms-box-shadow     : -4px 0px #000000;
+  -o-box-shadow      : -4px 0px #000000;
+  box-shadow         : -4px 0px #000000;
+  margin-left        : 10px;
+  padding-left       : 30px;
+}
+
 footer
 {
   grid-column-end : span 2;
@@ -150,7 +161,7 @@ td.lineNumbers
   padding-left  : 5px;
 }
 
-td.sourceCode
+pre.sourceCode
 {
   padding-left   : 5px;
   font-family    : "Monaco","Courier New", monospace;

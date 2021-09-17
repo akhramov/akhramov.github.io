@@ -7,8 +7,16 @@
         <description><![CDATA[Latest posts]]></description>
         <atom:link href="https://akhramov.github.io/rss.xml" rel="self"
                    type="application/rss+xml" />
-        <lastBuildDate>Mon, 08 Mar 2021 00:00:00 UT</lastBuildDate>
+        <lastBuildDate>Thu, 16 Sep 2021 00:00:00 UT</lastBuildDate>
         <item>
+    <title>On FreeBSD OCI Containers</title>
+    <link>https://akhramov.github.io/posts/2021-09-16-FreeBSD-OCI-jails.html</link>
+    <description><![CDATA[5 fables of FreeBSD OCI Containers]]></description>
+    <pubDate>Thu, 16 Sep 2021 00:00:00 UT</pubDate>
+    <guid>https://akhramov.github.io/posts/2021-09-16-FreeBSD-OCI-jails.html</guid>
+    <dc:creator>Artem Khramov</dc:creator>
+</item>
+<item>
     <title>Jailing Rust tests with procedural macros</title>
     <link>https://akhramov.github.io/posts/2021-03-08-jailed-tests.html</link>
     <description><![CDATA[Jailing Rust tests with procedural macros]]></description>
