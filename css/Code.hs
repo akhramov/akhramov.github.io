@@ -58,5 +58,5 @@ sourceCodeStyle = do
 codeStyle :: Css
 codeStyle =  do
   td # ".lineNumbers" ? lineNumbersStyle
-  td # ".sourceCode"  ? sourceCodeContainerStyle
+  pre # ".sourceCode"  ? sourceCodeContainerStyle
   div # ".sourceCode" ? sourceCodeStyle

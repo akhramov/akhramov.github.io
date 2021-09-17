@@ -15,6 +15,12 @@ bodyStyle = do
   sym margin (px 0)
   fullHeight
 
+blockquoteStyle :: Css
+blockquoteStyle = do
+  boxShadow $ fromList [black `bsColor` shadow (px -4) (px 0)]
+  marginLeft (px 10)
+  paddingLeft (px 30)
+
 containerStyle :: Css
 containerStyle = do
   fullHeight
@@ -78,6 +84,7 @@ layoutStyle = do
   html                   ? fullHeight
   body                   ? bodyStyle
   "#container"           ? containerStyle
+  blockquote             ? blockquoteStyle
   footer                 ? footerStyle
   header                <? headerStyle
   a                      ? linkStyle

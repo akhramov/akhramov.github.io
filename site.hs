@@ -4,8 +4,18 @@ import           Control.Monad   (liftM)
 import           Data.Char       (toLower)
 import           Data.Monoid     ((<>))
 import           Hakyll
+import qualified Text.Pandoc      as Pandoc
 import           System.FilePath (replaceExtension)
 --------------------------------------------------------------------------------
+
+withToc = defaultHakyllWriterOptions
+    { Pandoc.writerTableOfContents = True
+    , Pandoc.writerTemplate        = Just tocTemplate
+    }
+tocTemplate =
+    either error id $ either (error . show) id $
+    Pandoc.runPure $ Pandoc.runWithDefaultPartials $
+    Pandoc.compileTemplate "" "\n$toc$\n$body$"
 
 myFeedConfiguration :: FeedConfiguration
 myFeedConfiguration = FeedConfiguration
@@ -53,7 +63,12 @@ main = hakyll $ do
 
     match "posts/*" $ do
         route $ setExtension "html"
-        compile $ pandocCompiler
+        compile $ do
+          underlying <- getUnderlying
+          toc        <- getMetadataField underlying "tableOfContents"
+          let writerOptions' = maybe defaultHakyllWriterOptions (const withToc) toc
+
+          pandocCompilerWith defaultHakyllReaderOptions writerOptions'
             >>= loadAndApplyTemplate "templates/post.html"    (postCtx tags)
             >>= saveSnapshot "content"
             >>= loadAndApplyTemplate "templates/default.html" (postCtx tags)
